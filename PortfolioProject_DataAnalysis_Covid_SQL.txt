@@ -1,0 +1,228 @@
+/* This project analyzes a large covid dataset (2020-24) from Our World in Data in SQL 
+   server (too large to be analyzed in Power Query). It then creates views for 
+   visualiaztion in PowerBI and exports key factor data to Python for further analysis.
+   
+   To be more specific, the project calulates the highest percentages of population 
+   infected and vaccinated by country/region or continent. The views are created after 
+   the calculations, which then are imported to PowerBI for visualization. The subset
+   containing data in relation to the countries/regions with the highest percentages 
+   of total deaths, the percentages of vaccination as well as the selected socioeconomic,
+   demographic and health-related factors are exported to Python for furhter analyzing
+   the associations between the factors. */
+
+
+-- Retrieve the key column (factor) data to be analyzed from the table
+
+SELECT TOP 20 Location, date, total_cases, new_cases, total_deaths, new_deaths, population, 
+	extreme_poverty, gdp_per_capita, aged_70_older, hospital_beds_per_thousand, 
+	cardiovasc_death_rate, diabetes_prevalence
+FROM owid_covid_data
+WHERE total_cases IS NOT NULL
+ORDER BY total_cases DESC;
+
+
+-- Calculate the total population infected in the world using CTE
+
+WITH LatestInfectionPerLocation AS (
+    SELECT location, MAX(CAST(total_cases AS int)) AS LatestCaseCount
+    FROM owid_covid_data
+    WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+    GROUP BY location)
+SELECT SUM(LatestCaseCount) AS WorldTotalInfection
+FROM LatestInfectionPerLocation;
+
+
+-- Calculate the top 10 countries/regions with the highest percentages of population infected
+
+SELECT TOP 10 location, ROUND((MAX(CAST(total_cases AS FLOAT))/MAX(population))*100, 2) 
+	AS PercentPopulationInfected
+FROM owid_covid_data
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY PercentPopulationInfected DESC;
+
+
+-- Calculate the percentage of latest deaths by continent and year
+
+SELECT YEAR(date) AS year, location, MAX(CONVERT(FLOAT, total_cases)) AS LatestTotalCases, 
+    MAX(CONVERT(FLOAT, total_deaths)) AS LatestDeathCount, 
+    ROUND((MAX(CONVERT(FLOAT, total_deaths)) / NULLIF(MAX(CONVERT(FLOAT, total_cases)), 0)) * 100, 2) AS LatestDeathPercentage
+FROM owid_covid_data
+WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 'North America', 'South America', 'Oceania')
+GROUP BY location, YEAR(date)
+ORDER BY YEAR(date) DESC;
+
+
+-- Calulate the top 10 countries/regions with the highest death count
+
+SELECT TOP 10 location, MAX(cast(total_deaths as int)) AS TotalDeathCount
+FROM owid_covid_data
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY TotalDeathCount DESC;
+
+
+-- Calcualte the total death count by continent
+
+SELECT location, MAX(CAST(total_deaths AS int)) AS LatestDeathCount
+FROM owid_covid_data
+WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+GROUP BY location
+ORDER BY LatestDeathCount DESC;
+
+
+-- Calculate the latest death count in the world using CTE
+
+WITH LatestDeathsPerLocation AS (
+    SELECT location, MAX(CAST(total_deaths AS int)) AS LatestDeathCount
+    FROM owid_covid_data
+    WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+    GROUP BY location)
+SELECT SUM(LatestDeathCount) AS WorldTotalDeathCount
+FROM LatestDeathsPerLocation;
+
+
+-- Calculate the top 10 vaccination percentageS by country/region
+
+SELECT TOP 10 location, ROUND((MAX(total_vaccinations)/MAX(population)) * 100, 2) 
+	AS VaccinationPercentage
+FROM owid_covid_data
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY VaccinationPercentage DESC
+
+
+-- Calculate the latest vaccination percentages by continent
+
+SELECT location, population,
+	ROUND((MAX(CAST(total_vaccinations AS FLOAT))/MAX(population)) * 100, 2) AS LastestVaccinationPercentage
+FROM owid_covid_data
+WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+GROUP BY location, population
+ORDER BY LastestVaccinationPercentage DESC;
+
+
+-- Calculate the latest vaccination percentages in the world using CTE
+
+WITH LatestVaccinationPercentage AS (
+SELECT location, population,
+	ROUND((MAX(CAST(total_vaccinations AS FLOAT))/MAX(population)) * 100, 2) AS VaccinationPercentage
+FROM owid_covid_data
+WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+GROUP BY location, population)
+SELECT ROUND(SUM(VaccinationPercentage)/6, 2) AS WorldVaccinationPercentage
+FROM LatestVaccinationPercentage;
+
+
+/* Create views and import them into Power BI for visualization. */
+
+CREATE VIEW WorldTotalInfection AS
+WITH LatestInfectionPerLocation AS (
+    SELECT location, MAX(CAST(total_cases AS int)) AS LatestCaseCount
+    FROM owid_covid_data
+    WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+    GROUP BY location)
+SELECT SUM(LatestCaseCount) AS WorldTotalInfection
+FROM LatestInfectionPerLocation;
+
+
+CREATE VIEW Top10PercPopInfected AS
+SELECT TOP 10 location, ROUND((MAX(CAST(total_cases AS FLOAT))/MAX(population))*100, 2) 
+	AS PercentPopulationInfected
+FROM owid_covid_data
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY PercentPopulationInfected DESC;
+
+
+CREATE VIEW PercLatestDeaths_Continent_Year AS
+SELECT location, YEAR(date) AS year, MAX(CONVERT(FLOAT, total_cases)) AS LatestTotalCases, 
+    MAX(CONVERT(FLOAT, total_deaths)) AS LatestDeathCount, 
+    ROUND((MAX(CONVERT(FLOAT, total_deaths)) / NULLIF(MAX(CONVERT(FLOAT, total_cases)), 0)) * 100, 2) AS LatestDeathPercentage
+FROM owid_covid_data
+WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 'North America', 'South America', 'Oceania')
+GROUP BY location, YEAR(date);
+
+
+CREATE VIEW Top10LocationsDeathCount AS
+SELECT TOP 10 location, MAX(cast(total_deaths as int)) AS TotalDeathCount
+FROM owid_covid_data
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY TotalDeathCount DESC;
+
+
+CREATE VIEW LatestContinentDeathCount AS
+SELECT location, MAX(CAST(total_deaths AS int)) AS LatestDeathCount
+FROM owid_covid_data
+WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+GROUP BY location;
+
+
+CREATE VIEW LatestDeathsPerLocation AS
+WITH LatestDeathsPerLocation AS (
+    SELECT location, MAX(CAST(total_deaths AS int)) AS LatestDeathCount
+    FROM owid_covid_data
+    WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+    GROUP BY location)
+SELECT SUM(LatestDeathCount) AS WorldTotalDeathCount
+FROM LatestDeathsPerLocation;
+
+
+CREATE VIEW Top10PercVac_countriesRegions AS
+SELECT TOP 10 location, ROUND((MAX(total_vaccinations)/MAX(population)) * 100, 2) 
+	AS VaccinationPercentage
+FROM owid_covid_data
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY VaccinationPercentage DESC;
+
+
+CREATE VIEW LatestPercVac_continents AS
+SELECT location, population,
+	ROUND((MAX(CAST(total_vaccinations AS FLOAT))/MAX(population)) * 100, 2) AS LatestVaccinationPercentage
+FROM owid_covid_data
+WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+GROUP BY location, population;
+
+
+CREATE VIEW LatestPercVac_World AS
+WITH LatestVaccinationPercentage AS (
+SELECT location, population,
+	ROUND((MAX(CAST(total_vaccinations AS FLOAT))/MAX(population)) * 100, 2) AS VaccinationPercentage
+FROM owid_covid_data
+WHERE continent IS NULL AND location IN ('Asia', 'Africa', 'Europe', 
+	'North America', 'South America', 'Oceania')
+GROUP BY location, population)
+SELECT ROUND(SUM(VaccinationPercentage)/6, 2) AS WorldVaccinationPercentage
+FROM LatestVaccinationPercentage;
+
+
+/* Calculate the highest percentages of total deaths, the percentages of
+   vaccination and compare them with the selected socioeconomic, demographic and 
+   health-related factors. Export the result to Python for further analysis */
+
+SELECT location, 
+    ROUND((MAX(CONVERT(FLOAT, total_deaths)) / 
+	  MAX(NULLIF(CONVERT(FLOAT, total_cases), 0))) * 100, 1) AS TotalDeathPercentage, 
+    ROUND((MAX(total_vaccinations)/MAX(population)) * 100, 2) 
+		AS TotalVaccinationPercentage,
+	ROUND(MAX(CONVERT(FLOAT, extreme_poverty)), 1) AS ExtremePovertyPercentage,
+    ROUND(MAX(gdp_per_capita), 1) AS GDPPerCapita, 
+    ROUND(MAX(aged_70_older), 1) AS Aged70OverPercentage, 
+    ROUND(MAX(hospital_beds_per_thousand), 1) AS HospitalbedsPer1000, 
+    ROUND(MAX(cardiovasc_death_rate), 1) AS CardiovascDeathPer100000, 
+    ROUND(MAX(diabetes_prevalence), 1)  AS DiabetesPrevalence
+FROM owid_covid_data
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY TotalDeathPercentage DESC;
